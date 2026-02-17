@@ -62,6 +62,7 @@ class connection_t
 		std::string http_authorization{};
 
 		nlohmann::json post = nlohmann::json();
+		nlohmann::json uploaded_files = nlohmann::json::array();
 		nlohmann::json query_param = nlohmann::json();
 
 		std::unordered_map<std::string,std::string> cookie;
@@ -98,6 +99,7 @@ class connection_t
 			tmp["http_authorization"] = this->http_authorization;
 
 			tmp["post"] = this->post;
+			tmp["uploaded_files"] = this->uploaded_files;
 
 			return std::move(tmp);
 		};
