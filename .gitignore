@@ -1,4 +1,6 @@
 .vscode
+tegia-sdk
+Makefile.variable
 
 /bin/*.o
 /bin/*.so

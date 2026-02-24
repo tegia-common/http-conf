@@ -1,4 +1,4 @@
-include ../../../Makefile.variable
+include ./Makefile.variable
 
 _OK_=\033[32;2m[OK]\033[0m  
 
