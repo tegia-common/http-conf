@@ -277,6 +277,10 @@ bool connection_t::init(const std::string &name)
 		// Проверяем, что POST-данные содержат валидный JSON
 		//
 
+		std::cout << _YELLOW_ << std::endl;
+		std::cout << "content_type = " << this->content_type << std::endl;
+		std::cout << _BASE_TEXT_ << std::endl;
+
 		if(this->content_type.find("multipart/form-data") != std::string::npos)
 		{
 			const auto boundary = extract_boundary(this->content_type);
@@ -386,8 +390,20 @@ bool connection_t::init(const std::string &name)
 				if(!this->uploaded_files.empty())
 				{
 					ensure_upload_data_object(this->post);
-					this->post["data"]["_uploaded_files"] = this->uploaded_files;
+					
+					// this->post.erase("data");
+					this->post.erase("mime");
+					this->post.erase("name");
+					this->post.erase("size");
+
+					this->post["data"]["files"] = this->uploaded_files;
 				}
+
+				std::cout << _YELLOW_ << std::endl;
+				std::cout << "POST" << std::endl;
+				std::cout << this->post << std::endl;
+				std::cout << _BASE_TEXT_ << std::endl;
+				
 			}
 		}
 		else
@@ -430,6 +446,11 @@ bool connection_t::init(const std::string &name)
 			}
 			*/
 			}	
+
+			std::cout << _YELLOW_ << std::endl;
+			std::cout << "POST" << std::endl;
+			std::cout << this->post << std::endl;
+			std::cout << _BASE_TEXT_ << std::endl;
 		}
 	}
 
