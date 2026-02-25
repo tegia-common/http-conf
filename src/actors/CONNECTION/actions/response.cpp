@@ -129,35 +129,6 @@ int CONNECTION::response(const std::shared_ptr<message_t> &message)
 
 		//////////////////////////////////////////////////////////////////////////////////////////////
 		/*
-			434 application/json
-
-			Этот код возникает в сиутации, когда приходит запрос на незарегистрированный 
-			в системе домен
-		*/
-		//////////////////////////////////////////////////////////////////////////////////////////////
-
-
-		case 1555946182:
-		{
-			this->connection->content = cookie +
-					"Status: 434 Requested Host Unavailable\r\n" 
-					"Content-Type: application/json; charset=utf-8\r\n"
-					"Cache-Control: no-cache\r\n" +
-					message->http["response"]["header"].get<std::string>() +
-					"\r\n" +
-					message->data.dump() +
-					"\r\n";
-			
-			LDEBUG("CONNECTION " + this->name + "\n\n" + this->connection->content);
-
-			FCGX_PutStr(this->connection->content.c_str(), this->connection->content.size(),this->connection->req->out);
-			FCGX_Finish_r(this->connection->req);
-			return 434;
-		}
-		break;
-
-		//////////////////////////////////////////////////////////////////////////////////////////////
-		/*
 			400 application/json
 		*/
 		//////////////////////////////////////////////////////////////////////////////////////////////
@@ -234,6 +205,59 @@ int CONNECTION::response(const std::shared_ptr<message_t> &message)
 		}
 		break;
 
+		//////////////////////////////////////////////////////////////////////////////////////////////
+		/*
+			415 Unsupported Media Type
+		*/
+		//////////////////////////////////////////////////////////////////////////////////////////////
+
+		case 3738139142:
+		{
+			this->connection->content = cookie +
+					"Status: 415 Unsupported Media Type\r\n" 
+					"Content-Type: application/json; charset=utf-8\r\n"
+					"Cache-Control: no-cache\r\n" +
+					message->http["response"]["header"].get<std::string>() +
+					"\r\n" +
+					message->data.dump() +
+					"\r\n";
+			
+			LDEBUG("CONNECTION " + this->name + "\n\n" + this->connection->content);
+
+			FCGX_PutStr(this->connection->content.c_str(), this->connection->content.size(),this->connection->req->out);
+			FCGX_Finish_r(this->connection->req);
+			return 415;
+		}
+		break;
+
+		//////////////////////////////////////////////////////////////////////////////////////////////
+		/*
+			434 application/json
+
+			Этот код возникает в сиутации, когда приходит запрос на незарегистрированный 
+			в системе домен
+		*/
+		//////////////////////////////////////////////////////////////////////////////////////////////
+
+
+		case 1555946182:
+		{
+			this->connection->content = cookie +
+					"Status: 434 Requested Host Unavailable\r\n" 
+					"Content-Type: application/json; charset=utf-8\r\n"
+					"Cache-Control: no-cache\r\n" +
+					message->http["response"]["header"].get<std::string>() +
+					"\r\n" +
+					message->data.dump() +
+					"\r\n";
+			
+			LDEBUG("CONNECTION " + this->name + "\n\n" + this->connection->content);
+
+			FCGX_PutStr(this->connection->content.c_str(), this->connection->content.size(),this->connection->req->out);
+			FCGX_Finish_r(this->connection->req);
+			return 434;
+		}
+		break;
 
 		//////////////////////////////////////////////////////////////////////////////////////////////
 		/*

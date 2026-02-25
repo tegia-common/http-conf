@@ -14,7 +14,7 @@ extern "C" tegia::actors::type_base_t * _init_type(const std::string &type_name)
 	auto type = new tegia::actors::type_t<HTTP::CONNECTION>(ACTOR_TYPE);
 
 	ADD_ACTION("/init",     &HTTP::CONNECTION::init,     ROLES::SESSION::SYSTEM);
-	ADD_ACTION("/response", &HTTP::CONNECTION::response, ROLES::SESSION::PUBLIC, ROLES::SESSION::USER);
+	ADD_ACTION("/response", &HTTP::CONNECTION::response, ROLES::SESSION::SYSTEM, ROLES::SESSION::PUBLIC, ROLES::SESSION::USER);
 	ADD_ACTION("/test/01",  &HTTP::CONNECTION::test_01,  ROLES::SESSION::PUBLIC, ROLES::SESSION::USER);
 	ADD_ACTION("/test/02",  &HTTP::CONNECTION::test_02,  ROLES::SESSION::PUBLIC, ROLES::SESSION::USER);
 

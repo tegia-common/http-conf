@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 #include "connection.h"
-
+#include "storage.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 #undef _LOG_LEVEL_
@@ -17,57 +17,6 @@
 ////////////////////////////////////////////////////////////////////////////////////////////
 
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////
-/*
-	
-*/
-///////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-connection_t::connection_t()
-{
-	this->start_time = std::chrono::high_resolution_clock::now();
-	this->req = new FCGX_Request;
-};
-
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////////
-/*
-	
-*/
-///////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-connection_t::~connection_t() 
-{
-	delete this->req;
-
-	this->end_time = std::chrono::high_resolution_clock::now();
-	auto duration = std::chrono::duration_cast<std::chrono::microseconds>(this->end_time - this->start_time).count();
-
-	std::cout 	<< _YELLOW_ << "[" << this->status << "] REQUEST " << _BASE_TEXT_ 
-				<< this->url << " (time: " << duration << ")"  << std::endl;
-};
-
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////////
-/*
-	
-*/
-///////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-inline std::string get_param(const char* param_name, FCGX_Request *req)
-{
-	if(FCGX_GetParam(param_name, req->envp) != nullptr)
-	{
-		return FCGX_GetParam(param_name, req->envp);
-	}
-	else
-	{
-		return "";
-	}
-};
 
 
 static inline std::string trim(const std::string &value)
@@ -162,7 +111,266 @@ static void ensure_upload_data_object(nlohmann::json &post)
 }
 
 
-bool connection_t::init(const std::string &name)
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*
+	
+*/
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+connection_t::connection_t()
+{
+	this->start_time = std::chrono::high_resolution_clock::now();
+	this->req = new FCGX_Request;
+};
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*
+	
+*/
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+connection_t::~connection_t() 
+{
+	delete this->req;
+
+	this->end_time = std::chrono::high_resolution_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::microseconds>(this->end_time - this->start_time).count();
+
+	std::cout 	<< _YELLOW_ << "[" << this->status << "] REQUEST " << _BASE_TEXT_ 
+				<< this->url << " (time: " << duration << ")"  << std::endl;
+};
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*
+	
+*/
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+int connection_t::_application_json(const long long int content_length)
+{
+	char *buff = new char[content_length+1]{};
+	FCGX_GetStr(buff,content_length,this->req->in);
+	std::string post = std::string(buff, content_length);
+	delete[] buff;
+
+	nlohmann::json _jpost = nlohmann::json::parse(post);
+	if(_jpost.is_array() == true)
+	{
+		this->post["post"] = _jpost;
+	}
+	else
+	{
+		this->post = _jpost;
+	}
+
+	return 200;
+};
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*
+	
+*/
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+int connection_t::_multipart_form_data(const long long int content_length)
+{
+	char *buff = new char[content_length+1]{};
+	FCGX_GetStr(buff,content_length,this->req->in);
+	std::string post = std::string(buff, content_length);
+	delete[] buff;
+
+	//
+	//
+	//
+
+	const auto boundary = extract_boundary(this->content_type);
+
+	/*
+		В спецификации HTTP/медиа-типов (см. раздел про multipart в RFC 2046) 
+		параметр boundary для multipart/* обязателен. Если его нет - формат некорректный.
+
+		Необходимо вернуть 400 Bad Request
+	*/
+
+	if(boundary.empty())
+	{
+		LERROR("multipart/form-data without boundary");
+		return 400;
+	}
+
+	//
+	//
+	//
+
+	const std::string delimiter = "--" + boundary;
+	size_t search_pos = 0;
+
+	while(true)
+	{
+		std::cout << "while..." << std::endl;
+
+		auto part_begin = post.find(delimiter, search_pos);
+		if(part_begin == std::string::npos)
+		{
+			break;
+		}
+
+		part_begin += delimiter.size();
+		if(part_begin + 1 < post.size() && post.compare(part_begin, 2, "--") == 0)
+		{
+			break;
+		}
+
+		if(post.compare(part_begin, 2, "\r\n") == 0)
+		{
+			part_begin += 2;
+		}
+
+		auto headers_end = post.find("\r\n\r\n", part_begin);
+		if(headers_end == std::string::npos)
+		{
+			break;
+		}
+
+		auto next_delimiter = post.find("\r\n" + delimiter, headers_end + 4);
+		if(next_delimiter == std::string::npos)
+		{
+			break;
+		}
+
+		std::string headers = post.substr(part_begin, headers_end - part_begin);
+		std::string data = post.substr(headers_end + 4, next_delimiter - (headers_end + 4));
+
+		std::cout << _RED_TEXT_ << headers << _BASE_TEXT_ << std::endl;
+		// std::cout << data << std::endl;
+
+		std::string name;
+		std::string filename;
+		std::string file_content_type;
+
+		auto header_lines = tegia::string::explode(headers, "\r\n");
+		for(auto &line : header_lines)
+		{
+			if(line.find("Content-Disposition:") == 0)
+			{
+				name = extract_disposition_param(line, "name");
+				filename = extract_disposition_param(line, "filename");
+			}
+
+			if(line.find("Content-Type:") == 0)
+			{
+				auto p = line.find(':');
+				if(p != std::string::npos)
+				{
+					file_content_type = trim(line.substr(p + 1));
+				}
+			}
+		}
+
+		if(!filename.empty())
+		{
+			std::string stored_path;
+			if(write_binary_file(data, stored_path))
+			{
+				nlohmann::json metadata;
+				metadata["field"] = name;
+				metadata["filename"] = filename;
+				metadata["content_type"] = file_content_type;
+				metadata["size"] = data.size();
+				metadata["path"] = stored_path;
+
+				this->uploaded_files.push_back(metadata);
+			}
+		}
+		else if(!name.empty())
+		{
+			std::cout << _RED_TEXT_ << "data" << _BASE_TEXT_ << std::endl;
+			std::cout << data << std::endl;
+
+			if(name == "data")
+			{
+				try
+				{
+					this->post["data"] = nlohmann::json::parse(data);
+				}
+				catch(const nlohmann::json::parse_error&)
+				{
+					this->post["data"] = data;
+				}
+			}
+			else
+			{
+				this->post[name] = data;
+			}
+		}
+
+		search_pos = next_delimiter + 2;
+	}
+
+	if(!this->uploaded_files.empty())
+	{
+		std::string ws = this->post["ws"].get<std::string>();
+		std::string wsid = ws.substr(ws.length() - 36);
+
+		std::cout << "ws   = '" << ws << "'" << std::endl;
+		std::cout << "wsid = '" << wsid << "'" << std::endl;
+
+		storage_t storage("../data/storage", wsid);
+
+		for(auto &file: this->uploaded_files)
+		{
+			storage.save(file);
+		}
+
+		// exit(0);
+
+		// ensure_upload_data_object(this->post);
+		this->post["data"]["files"] = this->uploaded_files;
+	}
+
+	//
+	//
+	//				
+
+	std::cout << _YELLOW_ << std::endl;
+	std::cout << "POST" << std::endl;
+	std::cout << this->post << std::endl;
+	std::cout << _BASE_TEXT_ << std::endl;
+	
+	return 200;
+};
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*
+	
+*/
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+inline std::string get_param(const char* param_name, FCGX_Request *req)
+{
+	if(FCGX_GetParam(param_name, req->envp) != nullptr)
+	{
+		return FCGX_GetParam(param_name, req->envp);
+	}
+	else
+	{
+		return "";
+	}
+};
+
+
+
+int connection_t::init(const std::string &name)
 {
 	//
 	// REM: Записывает в лог полный список всех заголовков
@@ -253,7 +461,7 @@ bool connection_t::init(const std::string &name)
 	// Get a POST data
 	//
 
-	int content_length = 0;
+	long long int content_length = 0;
 	if(this->content_length != "")
 	{
 		content_length = core::cast<int>(this->content_length);
@@ -261,202 +469,36 @@ bool connection_t::init(const std::string &name)
 	
 	if(content_length > 0)
 	{
-		char *buff = new char[content_length+1]{};
-		FCGX_GetStr(buff,content_length,this->req->in);
-		std::string post = std::string(buff, content_length);
-		delete[] buff;
+		//
+		// application/json
+		//
 
-		#if _LOG_LEVEL_ == _LOG_DEBUG_
+		if(this->content_type.find("application/json") != std::string::npos)
 		{
-			query = query + "POST: " + post + "\n";
-			LDEBUG(query);
+			return this->_application_json(content_length);
 		}
-		#endif
 
 		//
-		// Проверяем, что POST-данные содержат валидный JSON
+		// multipart/form-data
+		//
+
+		if(this->content_type.find("multipart/form-data") != std::string::npos)
+		{
+			return this->_multipart_form_data(content_length);
+		}
+
+		//
+		// unknown content type
 		//
 
 		std::cout << _YELLOW_ << std::endl;
 		std::cout << "content_type = " << this->content_type << std::endl;
 		std::cout << _BASE_TEXT_ << std::endl;
 
-		if(this->content_type.find("multipart/form-data") != std::string::npos)
-		{
-			const auto boundary = extract_boundary(this->content_type);
-			if(boundary.empty())
-			{
-				LDEBUG("multipart/form-data without boundary");
-			}
-			else
-			{
-				const std::string delimiter = "--" + boundary;
-				size_t search_pos = 0;
-
-				while(true)
-				{
-					auto part_begin = post.find(delimiter, search_pos);
-					if(part_begin == std::string::npos)
-					{
-						break;
-					}
-
-					part_begin += delimiter.size();
-					if(part_begin + 1 < post.size() && post.compare(part_begin, 2, "--") == 0)
-					{
-						break;
-					}
-
-					if(post.compare(part_begin, 2, "\r\n") == 0)
-					{
-						part_begin += 2;
-					}
-
-					auto headers_end = post.find("\r\n\r\n", part_begin);
-					if(headers_end == std::string::npos)
-					{
-						break;
-					}
-
-					auto next_delimiter = post.find("\r\n" + delimiter, headers_end + 4);
-					if(next_delimiter == std::string::npos)
-					{
-						break;
-					}
-
-					std::string headers = post.substr(part_begin, headers_end - part_begin);
-					std::string data = post.substr(headers_end + 4, next_delimiter - (headers_end + 4));
-
-					std::string name;
-					std::string filename;
-					std::string file_content_type;
-
-					auto header_lines = tegia::string::explode(headers, "\r\n");
-					for(auto &line : header_lines)
-					{
-						if(line.find("Content-Disposition:") == 0)
-						{
-							name = extract_disposition_param(line, "name");
-							filename = extract_disposition_param(line, "filename");
-						}
-
-						if(line.find("Content-Type:") == 0)
-						{
-							auto p = line.find(':');
-							if(p != std::string::npos)
-							{
-								file_content_type = trim(line.substr(p + 1));
-							}
-						}
-					}
-
-					if(!filename.empty())
-					{
-						std::string stored_path;
-						if(write_binary_file(data, stored_path))
-						{
-							nlohmann::json metadata;
-							metadata["field"] = name;
-							metadata["filename"] = filename;
-							metadata["content_type"] = file_content_type;
-							metadata["size"] = data.size();
-							metadata["path"] = stored_path;
-
-							this->uploaded_files.push_back(metadata);
-						}
-					}
-					else if(!name.empty())
-					{
-						if(name == "data")
-						{
-							try
-							{
-								this->post["data"] = nlohmann::json::parse(data);
-							}
-							catch(const nlohmann::json::parse_error&)
-							{
-								this->post["data"] = data;
-							}
-						}
-						else
-						{
-							this->post[name] = data;
-						}
-					}
-
-					search_pos = next_delimiter + 2;
-				}
-
-				if(!this->uploaded_files.empty())
-				{
-					ensure_upload_data_object(this->post);
-					
-					// this->post.erase("data");
-					this->post.erase("mime");
-					this->post.erase("name");
-					this->post.erase("size");
-
-					this->post["data"]["files"] = this->uploaded_files;
-				}
-
-				std::cout << _YELLOW_ << std::endl;
-				std::cout << "POST" << std::endl;
-				std::cout << this->post << std::endl;
-				std::cout << _BASE_TEXT_ << std::endl;
-				
-			}
-		}
-		else
-		{
-			try
-			{
-				nlohmann::json _post = nlohmann::json::parse(post);
-				if(_post.is_array() == true)
-				{
-					this->post["post"] = _post;
-				}
-				else
-				{
-					this->post = _post;
-				}
-			}
-
-		//
-		// Обрабатываем классические POST-данные
-		//
-
-			catch(nlohmann::json::parse_error& e)
-			{
-				LDEBUG("POST RAW data: " + post);
-				std::cout << "POST RAW data: " << post << std::endl;
-
-			/*
-			auto params = core::explode(post,"&",true);
-			for(auto it = params.begin(); it != params.end(); it++)
-			{
-				auto param = core::explode( (*it),"=",true);
-				if(param.size() == 1)
-				{
-					message->http->request.post[param[0]] = ""; 
-				}
-				else
-				{
-					message->http->request.post[param[0]] = tegia::http::unescape(param[1]); 
-				}
-			}
-			*/
-			}	
-
-			std::cout << _YELLOW_ << std::endl;
-			std::cout << "POST" << std::endl;
-			std::cout << this->post << std::endl;
-			std::cout << _BASE_TEXT_ << std::endl;
-		}
+		return 415;
 	}
 
-
-
-	return true;
+	return 200;
 };
 
 

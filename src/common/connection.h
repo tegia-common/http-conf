@@ -31,12 +31,15 @@ class connection_t
 		std::chrono::high_resolution_clock::time_point start_time;
 		std::chrono::high_resolution_clock::time_point end_time;
 
+		int _application_json(const long long int content_length);
+		int _multipart_form_data(const long long int content_length);
+
 	public:
 		connection_t();
 
 		~connection_t();
 
-		bool init(const std::string &name);
+		int init(const std::string &name);
 
 		//
 		// REQUEST PARAM

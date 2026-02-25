@@ -33,7 +33,36 @@ int CONNECTION::init(const std::shared_ptr<message_t> &message)
 	//
 
 	this->connection = msg->_connection;
-	this->connection->init(this->name);	
+	int status = this->connection->init(this->name);
+
+	switch(status)
+	{
+		case 200:
+		{
+			// OK
+		}
+		break;
+
+		case 400:
+		{
+			auto _msg = std::make_shared<message_t>();
+			_msg->http["response"]["status"] = 400;
+			_msg->http["response"]["type"] = "application/json";
+			tegia::message::send(this->name,"/response",_msg);
+			return 400;
+		}
+		break;
+
+		case 415:
+		{
+			auto _msg = std::make_shared<message_t>();
+			_msg->http["response"]["status"] = 415;
+			_msg->http["response"]["type"] = "application/json";
+			tegia::message::send(this->name,"/response",_msg);
+			return 415;
+		}
+		break;
+	}
 
 	//
 	// CORS
