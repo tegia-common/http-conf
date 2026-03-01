@@ -1,4 +1,5 @@
 #include "../CONNECTION.h"
+#include "../../../common/content_disposition.h"
 
 ///
 #undef _LOG_LEVEL_
@@ -138,6 +139,7 @@ int CONNECTION::response(const std::shared_ptr<message_t> &message)
 		{
 			std::string filename = message->http["response"]["filename"].get<std::string>();
 			std::string path = message->http["response"]["location"].get<std::string>();
+			std::string content_disposition = HTTP::headers::build_content_disposition_attachment(filename);
 
 			std::string storage_base = "/var/lib/tegia/clm-cluster@CLM-1/storage";
 			path = path.substr(storage_base.length());
@@ -145,14 +147,14 @@ int CONNECTION::response(const std::shared_ptr<message_t> &message)
 			// TODO !!! Костыль
 
 			this->connection->status = 200;
-			this->connection->content = cookie + 
-				"Status: 200 OK\r\n"
-				"Cache-Control: no-cache\r\n"
-				"X-Accel-Redirect: /files/download" + path + "\r\n" + 
-				"Content-Type: application/octet-stream\r\n" + 
-				"Content-Disposition: attachment; filename=\"" + filename + "\"" +
-				"\r\n" +
-				"\r\n";					
+				this->connection->content = cookie + 
+					"Status: 200 OK\r\n"
+					"Cache-Control: no-cache\r\n"
+					"X-Accel-Redirect: /files/download" + path + "\r\n" + 
+					"Content-Type: application/octet-stream\r\n" + 
+					"Content-Disposition: " + content_disposition +
+					"\r\n" +
+					"\r\n";					
 		
 			LDEBUG("CONNECTION " + this->name + "\n\n" + this->connection->content);
 
