@@ -11,9 +11,94 @@
 namespace HTTP {
 namespace headers {
 
+inline constexpr size_t k_max_raw_filename_bytes = 4096;
+inline constexpr size_t k_max_sanitized_filename_bytes = 255;
+
 inline bool is_ascii_control(unsigned char ch)
 {
 	return ch <= 0x1F || ch == 0x7F;
+}
+
+inline bool decode_utf8_codepoint(const std::string &value, size_t pos, uint32_t &codepoint, size_t &length)
+{
+	if(pos >= value.size())
+	{
+		return false;
+	}
+
+	unsigned char b0 = static_cast<unsigned char>(value[pos]);
+	if((b0 & 0x80) == 0x00)
+	{
+		codepoint = b0;
+		length = 1;
+		return true;
+	}
+
+	if((b0 & 0xE0) == 0xC0)
+	{
+		length = 2;
+		if(pos + length > value.size())
+		{
+			return false;
+		}
+
+		unsigned char b1 = static_cast<unsigned char>(value[pos + 1]);
+		if((b1 & 0xC0) != 0x80)
+		{
+			return false;
+		}
+
+		codepoint = ((b0 & 0x1F) << 6) | (b1 & 0x3F);
+		return codepoint >= 0x80;
+	}
+
+	if((b0 & 0xF0) == 0xE0)
+	{
+		length = 3;
+		if(pos + length > value.size())
+		{
+			return false;
+		}
+
+		unsigned char b1 = static_cast<unsigned char>(value[pos + 1]);
+		unsigned char b2 = static_cast<unsigned char>(value[pos + 2]);
+		if((b1 & 0xC0) != 0x80 || (b2 & 0xC0) != 0x80)
+		{
+			return false;
+		}
+
+		codepoint = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
+		return codepoint >= 0x800;
+	}
+
+	if((b0 & 0xF8) == 0xF0)
+	{
+		length = 4;
+		if(pos + length > value.size())
+		{
+			return false;
+		}
+
+		unsigned char b1 = static_cast<unsigned char>(value[pos + 1]);
+		unsigned char b2 = static_cast<unsigned char>(value[pos + 2]);
+		unsigned char b3 = static_cast<unsigned char>(value[pos + 3]);
+		if((b1 & 0xC0) != 0x80 || (b2 & 0xC0) != 0x80 || (b3 & 0xC0) != 0x80)
+		{
+			return false;
+		}
+
+		codepoint = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F);
+		return codepoint >= 0x10000 && codepoint <= 0x10FFFF;
+	}
+
+	return false;
+}
+
+inline bool is_bidi_control_codepoint(uint32_t codepoint)
+{
+	return
+		(codepoint >= 0x202A && codepoint <= 0x202E) ||
+		(codepoint >= 0x2066 && codepoint <= 0x2069);
 }
 
 inline std::string truncate_utf8_to_bytes(const std::string &value, size_t max_bytes)
@@ -60,31 +145,59 @@ inline std::string truncate_utf8_to_bytes(const std::string &value, size_t max_b
 
 inline std::string sanitize_download_filename(const std::string &raw)
 {
+	std::string bounded_raw = truncate_utf8_to_bytes(raw, k_max_raw_filename_bytes);
 	std::string sanitized;
-	sanitized.reserve(raw.size());
+	sanitized.reserve(std::min(bounded_raw.size(), k_max_sanitized_filename_bytes));
 
-	for(unsigned char ch : raw)
+	size_t i = 0;
+	while(i < bounded_raw.size())
 	{
-		if(ch == '\r' || ch == '\n' || ch == '\0')
+		unsigned char ch = static_cast<unsigned char>(bounded_raw[i]);
+		if((ch & 0x80) == 0x00)
 		{
+			if(ch == '\r' || ch == '\n' || ch == '\0')
+			{
+				++i;
+				continue;
+			}
+
+			if(ch == '/' || ch == '\\')
+			{
+				sanitized.push_back('_');
+				++i;
+				continue;
+			}
+
+			if(is_ascii_control(ch))
+			{
+				++i;
+				continue;
+			}
+
+			sanitized.push_back(static_cast<char>(ch));
+			++i;
 			continue;
 		}
 
-		if(ch == '/' || ch == '\\')
+		uint32_t codepoint = 0;
+		size_t len = 0;
+		if(!decode_utf8_codepoint(bounded_raw, i, codepoint, len))
 		{
-			sanitized.push_back('_');
+			++i;
 			continue;
 		}
 
-		if(is_ascii_control(ch))
+		if(is_bidi_control_codepoint(codepoint))
 		{
+			i += len;
 			continue;
 		}
 
-		sanitized.push_back(static_cast<char>(ch));
+		sanitized.append(bounded_raw, i, len);
+		i += len;
 	}
 
-	sanitized = truncate_utf8_to_bytes(sanitized, 255);
+	sanitized = truncate_utf8_to_bytes(sanitized, k_max_sanitized_filename_bytes);
 	if(sanitized.empty())
 	{
 		return "download.bin";
