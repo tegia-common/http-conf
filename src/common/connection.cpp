@@ -323,7 +323,7 @@ int connection_t::_multipart_form_data(const long long int content_length)
 		std::cout << "ws   = '" << ws << "'" << std::endl;
 		std::cout << "wsid = '" << wsid << "'" << std::endl;
 
-		storage_t storage("../data/storage", wsid);
+		storage_t storage("/var/lib/tegia/clm-cluster@CLM-1/storage", wsid);
 
 		for(auto &file: this->uploaded_files)
 		{

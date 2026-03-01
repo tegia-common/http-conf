@@ -2,7 +2,7 @@
 
 ///
 #undef _LOG_LEVEL_
-#define _LOG_LEVEL_ _LOG_ERROR_
+#define _LOG_LEVEL_ _LOG_DEBUG_
 #include <tegia/context/log.h>
 ///
 
@@ -88,6 +88,8 @@ int CONNECTION::response(const std::shared_ptr<message_t> &message)
 
 	// message->data["http"]["response"]["data"]["request"] = this->connection->json();
 
+	std::cout << _YELLOW_ << message->http << _BASE_TEXT_ << std::endl;
+
 	message->data["connection"] = this->name;
 	message->callback.add("http/listener","/unload");
 
@@ -106,7 +108,6 @@ int CONNECTION::response(const std::shared_ptr<message_t> &message)
 		*/
 		//////////////////////////////////////////////////////////////////////////////////////////////
 		
-
 		case 1492069240:
 		{
 			this->connection->status = 200;
@@ -117,6 +118,40 @@ int CONNECTION::response(const std::shared_ptr<message_t> &message)
 				message->http["response"]["header"].get<std::string>() +
 				"\r\n" +
 				message->data.dump() +
+				"\r\n";					
+		
+			LDEBUG("CONNECTION " + this->name + "\n\n" + this->connection->content);
+
+			FCGX_PutStr(this->connection->content.c_str(), this->connection->content.size(),this->connection->req->out);
+			FCGX_Finish_r(this->connection->req);
+			return 200;
+		}
+		break;
+
+		//////////////////////////////////////////////////////////////////////////////////////////////
+		/*
+			200 file/download
+		*/
+		//////////////////////////////////////////////////////////////////////////////////////////////
+
+		case 3421455882:
+		{
+			std::string filename = message->http["response"]["filename"].get<std::string>();
+			std::string path = message->http["response"]["location"].get<std::string>();
+
+			std::string storage_base = "/var/lib/tegia/clm-cluster@CLM-1/storage";
+			path = path.substr(storage_base.length());
+
+			// TODO !!! Костыль
+
+			this->connection->status = 200;
+			this->connection->content = cookie + 
+				"Status: 200 OK\r\n"
+				"Cache-Control: no-cache\r\n"
+				"X-Accel-Redirect: /files/download" + path + "\r\n" + 
+				"Content-Type: application/octet-stream\r\n" + 
+				"Content-Disposition: attachment; filename=\"" + filename + "\"" +
+				"\r\n" +
 				"\r\n";					
 		
 			LDEBUG("CONNECTION " + this->name + "\n\n" + this->connection->content);
