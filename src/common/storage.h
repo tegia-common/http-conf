@@ -64,6 +64,15 @@ int storage_t::save(nlohmann::json &metadata)
             ec
         );
 
+        std::filesystem::permissions(
+            destination,
+            std::filesystem::perms::owner_read | 
+            std::filesystem::perms::owner_write |
+            std::filesystem::perms::group_read | 
+            std::filesystem::perms::group_write,
+            std::filesystem::perm_options::replace
+        );
+
         if(result)
         {
             // TODO: ERROR

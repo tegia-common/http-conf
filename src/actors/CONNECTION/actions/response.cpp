@@ -3,7 +3,7 @@
 
 ///
 #undef _LOG_LEVEL_
-#define _LOG_LEVEL_ _LOG_DEBUG_
+#define _LOG_LEVEL_ _LOG_ERROR_
 #include <tegia/context/log.h>
 ///
 
