@@ -95,9 +95,20 @@ int CONNECTION::response(const std::shared_ptr<message_t> &message)
 	message->callback.add("http/listener","/unload");
 
 	std::string cookie = "";
+	int status = 200;
+
+	if(message->http.contains("/response/status"_json_pointer) == true)
+	{
+		status = message->http["response"]["status"].get<int>();
+	}
+	else
+	{
+		std::cout << _ERR_TEXT_ << "NOT FOUND 'response/status' IN message->http" << std::endl;
+		exit(0);
+	}
 
 	auto _case = tegia::crypt::crc32(
-		core::cast<std::string>(message->http["response"]["status"].get<int>()) + 
+		core::cast<std::string>(status) + 
 		message->http["response"]["type"].get<std::string>()
 	);
 
